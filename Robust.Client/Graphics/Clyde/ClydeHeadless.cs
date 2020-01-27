@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using OpenToolkit.GraphicsLibraryFramework;
 using Robust.Client.Audio;
 using Robust.Client.Graphics.Shaders;
 using Robust.Client.Input;
@@ -8,6 +9,8 @@ using Robust.Shared.Maths;
 using Robust.Shared.Timing;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using Image = SixLabors.ImageSharp.Image;
+using GlfwImage = OpenToolkit.GraphicsLibraryFramework.Image;
 
 namespace Robust.Client.Graphics.Clyde
 {
@@ -42,6 +45,17 @@ namespace Robust.Client.Graphics.Clyde
         public override void SetWindowTitle(string title)
         {
             // Nada.
+        }
+
+        public override void CreateCursor(GlfwImage image, int x, int y)
+        {
+            // Nope
+        }
+
+
+        public void SetCursor(Cursor cursor, Window window)
+        {
+            // HET
         }
 
         public override bool Initialize()
