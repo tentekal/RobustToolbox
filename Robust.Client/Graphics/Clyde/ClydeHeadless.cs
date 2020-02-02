@@ -19,6 +19,8 @@ namespace Robust.Client.Graphics.Clyde
     /// </summary>
     internal sealed class ClydeHeadless : ClydeBase, IClydeInternal, IClydeAudio
     {
+        private ClydeBase _clydeBaseImplementation;
+
         // Would it make sense to report a fake resolution like 720p here so code doesn't break? idk.
         public override Vector2i ScreenSize { get; } = (1280, 720);
 
@@ -49,9 +51,8 @@ namespace Robust.Client.Graphics.Clyde
 
         public override void CreateCursor(GlfwImage image, int x, int y)
         {
-            // Nope
+            throw new NotImplementedException();
         }
-
 
         public void SetCursor(Cursor cursor, Window window)
         {
@@ -65,6 +66,10 @@ namespace Robust.Client.Graphics.Clyde
 
 #pragma warning disable CS0067
         public override event Action<WindowResizedEventArgs> OnWindowResized;
+        public override void ConvertPnGtoGlfwImage(string png)
+        {
+            throw new NotImplementedException();
+        }
 #pragma warning restore CS0067
 
         public void Render()
