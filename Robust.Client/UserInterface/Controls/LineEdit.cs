@@ -304,6 +304,16 @@ namespace Robust.Client.UserInterface.Controls
                     _updatePseudoClass();
                     args.Handle();
                 }
+
+                // TODO add shift and stuff to control.cs
+                if (args.Function == EngineKeyFunctions.TextSubmit)
+                {
+                    if (!this.HasKeyboardFocus())
+                    {
+                        return;
+                    }
+                }
+
                 else if (args.Function == EngineKeyFunctions.TextCursorLeft)
                 {
                     if (_cursorPosition == 0)
