@@ -45,6 +45,10 @@ namespace Robust.Shared.Input
         public static readonly BoundKeyFunction TextShiftLeft = "TextShiftLeft";
         public static readonly BoundKeyFunction TextShiftRight = "TextShiftRight";
         public static readonly BoundKeyFunction TextDelete = "TextDelete";
+        public static readonly BoundKeyFunction TextCtrlLeft = "TextCtrlLeft";
+        public static readonly BoundKeyFunction TextCtrlRight = "TextCtrlRight";
+        public static readonly BoundKeyFunction TextEnd = "TextEnd";
+        public static readonly BoundKeyFunction TextHome = "TextHome";
     }
 
     [Serializable, NetSerializable]
