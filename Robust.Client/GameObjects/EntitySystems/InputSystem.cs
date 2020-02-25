@@ -9,6 +9,7 @@ using Robust.Shared.Interfaces.GameObjects;
 using Robust.Shared.IoC;
 using Robust.Shared.Log;
 using Robust.Shared.Players;
+using Robust.Shared.Utility;
 
 namespace Robust.Client.GameObjects.EntitySystems
 {
@@ -43,6 +44,13 @@ namespace Robust.Client.GameObjects.EntitySystems
         /// <param name="message">Arguments for this event.</param>
         public void HandleInputCommand(ICommonSession session, BoundKeyFunction function, FullInputCmdMessage message)
         {
+            #if DEBUG
+
+            var funcId = _inputManager.NetworkBindMap.KeyFunctionID(function);
+            DebugTools.Assert(funcId == message.InputFunctionId, "Function ID in message does not match function.");
+
+            #endif
+
             // set state, state change is updated regardless if it is locally bound
             _cmdStates.SetState(function, message.State);
 
@@ -57,22 +65,16 @@ namespace Robust.Client.GameObjects.EntitySystems
             RaiseNetworkEvent(message);
         }
 
-        /// <inheritdoc />
-        public override void SubscribeEvents()
+        public override void Initialize()
         {
-            base.SubscribeEvents();
-
-            SubscribeEvent<PlayerAttachSysMessage>(OnAttachedEntityChanged);
+            SubscribeLocalEvent<PlayerAttachSysMessage>(OnAttachedEntityChanged);
         }
 
-        private void OnAttachedEntityChanged(object sender, EntitySystemMessage message)
+        private void OnAttachedEntityChanged(PlayerAttachSysMessage message)
         {
-            if(!(message is PlayerAttachSysMessage msg))
-                return;
-
-            if (msg.AttachedEntity != null) // attach
+            if (message.AttachedEntity != null) // attach
             {
-                SetEntityContextActive(_inputManager, msg.AttachedEntity);
+                SetEntityContextActive(_inputManager, message.AttachedEntity);
             }
             else // detach
             {
@@ -106,6 +108,11 @@ namespace Robust.Client.GameObjects.EntitySystems
         /// </summary>
         public void SetEntityContextActive()
         {
+            if (_playerManager.LocalPlayer.ControlledEntity == null)
+            {
+                return;
+            }
+
             SetEntityContextActive(_inputManager, _playerManager.LocalPlayer.ControlledEntity);
         }
     }

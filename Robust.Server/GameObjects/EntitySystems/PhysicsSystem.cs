@@ -7,6 +7,7 @@ using Robust.Shared.GameObjects.Components;
 using Robust.Shared.GameObjects.Systems;
 using Robust.Shared.Interfaces.GameObjects;
 using Robust.Shared.Interfaces.Map;
+using Robust.Shared.Interfaces.Physics;
 using Robust.Shared.IoC;
 using Robust.Shared.Maths;
 
@@ -31,14 +32,21 @@ namespace Robust.Server.GameObjects.EntitySystems
         /// <inheritdoc />
         public override void Update(float frameTime)
         {
+            // TODO: manifolds
             var entities = EntityManager.GetEntities(EntityQuery);
             SimulateWorld(frameTime, entities);
         }
 
         private void SimulateWorld(float frameTime, IEnumerable<IEntity> entities)
         {
+            // simulation can introduce deleted entities into the query results
             foreach (var entity in entities)
             {
+                if (entity.Deleted)
+                {
+                    continue;
+                }
+
                 if (_pauseManager.IsEntityPaused(entity))
                 {
                     continue;
@@ -49,6 +57,11 @@ namespace Robust.Server.GameObjects.EntitySystems
 
             foreach (var entity in entities)
             {
+                if (entity.Deleted)
+                {
+                    continue;
+                }
+
                 DoMovement(entity, frameTime);
             }
         }
@@ -95,7 +108,7 @@ namespace Robust.Server.GameObjects.EntitySystems
                 foreach (var consumer in velocityConsumers)
                 {
                     totalMass += consumer.Mass;
-                    var movement = lowestMovement * velocity.Mass / totalMass;
+                    var movement = lowestMovement * velocity.Mass / (totalMass != 0 ? totalMass : 1);
                     consumer.AngularVelocity = velocity.AngularVelocity;
                     consumer.LinearVelocity = movement;
                     copy.Add(CalculateMovement(tileDefinitionManager, mapManager, consumer, frameTime, consumer.Owner) / frameTime);

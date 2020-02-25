@@ -1,9 +1,14 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using Robust.Shared.GameObjects.Components;
 using Robust.Shared.Interfaces.GameObjects;
+using Robust.Shared.Interfaces.Map;
 using Robust.Shared.Interfaces.Physics;
+using Robust.Shared.IoC;
 using Robust.Shared.Log;
 using Robust.Shared.Map;
 using Robust.Shared.Maths;
@@ -13,10 +18,12 @@ namespace Robust.Shared.Physics
     /// <inheritdoc />
     public class PhysicsManager : IPhysicsManager
     {
-        private readonly List<IPhysBody> _bodies = new List<IPhysBody>();
         private readonly List<IPhysBody> _results = new List<IPhysBody>();
 
-        private readonly IBroadPhase _broadphase = new BroadPhaseNaive();
+        private readonly ConcurrentDictionary<MapId,BroadPhase> _treesPerMap =
+            new ConcurrentDictionary<MapId, BroadPhase>();
+
+        private BroadPhase this[MapId mapId] => _treesPerMap.GetOrAdd(mapId, _ => new BroadPhase());
 
         /// <summary>
         ///     returns true if collider intersects a physBody under management. Does not trigger Bump.
@@ -26,7 +33,7 @@ namespace Robust.Shared.Physics
         /// <returns></returns>
         public bool IsColliding(Box2 collider, MapId map)
         {
-            foreach (var body in _bodies)
+            foreach (var body in this[map].Query(collider))
             {
                 if (!body.CollisionEnabled || body.CollisionLayer == 0x0)
                     continue;
@@ -119,27 +126,33 @@ namespace Robust.Shared.Physics
         /// <param name="physBody">Body being tested.</param>
         /// <param name="colliderAABB">The AABB of the physBody being tested. This can be IPhysBody.WorldAABB, or a modified version of it.</param>
         /// <param name="results">An empty list that the function stores all colliding bodies inside of.</param>
-        internal void DoCollisionTest(IPhysBody physBody, Box2 colliderAABB, List<IPhysBody> results)
+        internal bool DoCollisionTest(IPhysBody physBody, Box2 colliderAABB, List<IPhysBody> results)
         {
             // TODO: Terrible hack to fix bullets crashing the server.
             // Should be handled with deferred physics events instead.
             if(physBody.Owner.Deleted)
-                return;
+                return false;
 
-            _broadphase.Query((delegate(int id)
+            var any = false;
+
+            foreach ( var body in this[physBody.MapID].Query(colliderAABB))
             {
-                var body = _broadphase.GetProxy(id).Body;
 
                 // TODO: Terrible hack to fix bullets crashing the server.
                 // Should be handled with deferred physics events instead.
-                if (body.Owner.Deleted)
-                    return true;
+                if (body.Owner.Deleted) {
+                    continue;
+                }
 
                 if (TestMask(physBody, body))
+                {
                     results.Add(body);
+                }
 
-                return true;
-            }), colliderAABB);
+                any = true;
+            }
+
+            return any;
         }
 
         private static bool TestMask(IPhysBody a, IPhysBody b)
@@ -154,7 +167,7 @@ namespace Robust.Shared.Physics
                 (b.CollisionMask & a.CollisionLayer) == 0x0)
                 return false;
 
-            return a.MapID == b.MapID;
+            return true;
         }
 
         /// <summary>
@@ -163,20 +176,15 @@ namespace Robust.Shared.Physics
         /// <param name="physBody"></param>
         public void AddBody(IPhysBody physBody)
         {
-            if (!_bodies.Contains(physBody))
+            if (!this[physBody.MapID].Add(physBody))
             {
-                _bodies.Add(physBody);
-
-                var proxy = new BodyProxy()
-                {
-                    Body = physBody
-                };
-
-                physBody.ProxyId = _broadphase.AddProxy(proxy);
-            }
-            else
                 Logger.WarningS("phys", $"PhysicsBody already registered! {physBody.Owner}");
+            }
         }
+
+#pragma warning disable 649
+        [Dependency] private readonly IMapManager _mapManager;
+#pragma warning restore 649
 
         /// <summary>
         ///     Removes a physBody from the manager
@@ -184,49 +192,135 @@ namespace Robust.Shared.Physics
         /// <param name="physBody"></param>
         public void RemoveBody(IPhysBody physBody)
         {
-            if (_bodies.Contains(physBody))
+            var removed = false;
+
+            if (physBody.Owner.Deleted || physBody.Owner.Transform.Deleted)
             {
-                _bodies.Remove(physBody);
-                _broadphase.RemoveProxy(physBody.ProxyId);
+                foreach (var mapId in _mapManager.GetAllMapIds())
+                {
+                    removed = this[mapId].Remove(physBody);
+
+                    if (removed)
+                    {
+                        break;
+                    }
+                }
             }
-            else
+
+            if (!removed)
+            {
+                try
+                {
+                    removed = this[physBody.MapID].Remove(physBody);
+                }
+                catch (InvalidOperationException)
+                {
+                    // TODO: TryGetMapId or something
+                    foreach (var mapId in _mapManager.GetAllMapIds())
+                    {
+                        removed = this[mapId].Remove(physBody);
+
+                        if (removed)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!removed)
+            {
+                foreach (var mapId in _mapManager.GetAllMapIds())
+                {
+                    removed = this[mapId].Remove(physBody);
+
+                    if (removed)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (!removed)
                 Logger.WarningS("phys", $"Trying to remove unregistered PhysicsBody! {physBody.Owner}");
         }
 
         /// <inheritdoc />
-        public RayCastResults IntersectRay(Ray ray, float maxLength = 50, IEntity ignoredEnt = null)
+        public RayCastResults IntersectRay(MapId mapId, CollisionRay ray, float maxLength = 50, IEntity ignoredEnt = null)
         {
-            IEntity entity = null;
-            var hitPosition = Vector2.Zero;
-            var minDist = maxLength;
-            foreach (var body in _bodies)
-            {
-                if ((ray.CollisionMask & body.CollisionLayer) == 0x0)
+            RayCastResults result = default;
+
+            this[mapId].Query((ref IPhysBody body, in Vector2 point, float distFromOrigin) => {
+
+                if (distFromOrigin > maxLength)
                 {
-                    continue;
+                    return true;
                 }
-                if (ray.Intersects(body.WorldAABB, out var dist, out var hitPos) && dist < minDist)
+
+                if (body.Owner == ignoredEnt)
                 {
-                    if (!body.IsHardCollidable || ignoredEnt != null && ignoredEnt == body.Owner)
-                        continue;
-
-                    entity = body.Owner;
-                    minDist = dist;
-                    hitPosition = hitPos;
+                    return true;
                 }
-            }
 
-            RayCastResults results = default;
-            if (entity != null)
-            {
-                results = new RayCastResults(minDist, hitPosition, entity);
-            }
+                if (!body.CollisionEnabled)
+                {
+                    return true;
+                }
 
-            DebugDrawRay?.Invoke(new DebugRayData(ray, maxLength, results));
+                if ((body.CollisionLayer & ray.CollisionMask) == 0x0)
+                {
+                    return true;
+                }
 
-            return results;
+                // ReSharper disable once CompareOfFloatsByEqualityOperator
+                if (result.Distance != 0f && distFromOrigin > result.Distance)
+                {
+                    return true;
+                }
+
+                result = new RayCastResults(distFromOrigin, point, body.Owner);
+
+                return true;
+            }, ray.Position, ray.Direction);
+
+            DebugDrawRay?.Invoke(new DebugRayData(ray, maxLength, result));
+
+            return result;
         }
 
         public event Action<DebugRayData> DebugDrawRay;
+
+        public IEnumerable<(IPhysBody, IPhysBody)> GetCollisions()
+        {
+            foreach (var mapId in _mapManager.GetAllMapIds())
+            {
+                foreach (var collision in this[mapId].GetCollisions(true))
+                {
+                    var (a, b) = collision;
+
+                    if (!a.CollisionEnabled || !b.CollisionEnabled)
+                    {
+                        continue;
+                    }
+
+                    if (((a.CollisionLayer & b.CollisionMask) == 0x0)
+                        ||(b.CollisionLayer & a.CollisionMask) == 0x0)
+                    {
+                        continue;
+                    }
+
+                    if (!a.WorldAABB.Intersects(b.WorldAABB))
+                    {
+                        continue;
+                    }
+
+                    yield return collision;
+                }
+            }
+        }
+
+        public bool Update(IPhysBody collider)
+            => this[collider.MapID].Update(collider);
+
     }
 }
