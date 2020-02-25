@@ -1,12 +1,13 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Resources;
+using System.Runtime;
+using System.Runtime.Versioning;
 using System.Text;
-using OpenToolkit.GraphicsLibraryFramework;
+using Robust.Client.Input;
 using Robust.Client.Interfaces;
 using Robust.Client.Interfaces.Console;
 using Robust.Client.Interfaces.Debugging;
@@ -17,7 +18,7 @@ using Robust.Client.Interfaces.Input;
 using Robust.Client.Interfaces.ResourceManagement;
 using Robust.Client.Interfaces.State;
 using Robust.Client.Interfaces.UserInterface;
-using Robust.Client.ResourceManagement;
+using Robust.Client.ResourceManagement.ResourceTypes;
 using Robust.Client.State.States;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
@@ -32,12 +33,9 @@ using Robust.Shared.Interfaces.Resources;
 using Robust.Shared.IoC;
 using Robust.Shared.Map;
 using Robust.Shared.Maths;
+using Robust.Shared.Serialization;
 using Robust.Shared.Utility;
 using Robust.Shared.ViewVariables;
-using SixLabors.ImageSharp.PixelFormats;
-using Robust.Client.Graphics;
-using OpenToolkit.GraphicsLibraryFramework;
-using Robust.Shared.Log;
 
 namespace Robust.Client.Console.Commands
 {
@@ -360,7 +358,6 @@ namespace Robust.Client.Console.Commands
         }
     }
 
-
     internal class ReloadResource : IConsoleCommand
     {
         public string Command => "rldrsc";
@@ -465,27 +462,6 @@ namespace Robust.Client.Console.Commands
 
             members.Sort((a, b) => string.Compare(a.Item1, b.Item1, StringComparison.Ordinal));
             return members;
-        }
-    }
-
-    internal class CursorTestCommand : IConsoleCommand
-    {
-        public string Command => "cursortest";
-        public string Description => "Change cursor to a generic custom";
-        public string Help => "cursortest";
-        public bool Execute(IDebugConsole console, params string[] args)
-        {
-            if (args.Length == 0)
-            {
-                console.AddLine("No icon path received, please enter a path to the png.");
-            }
-
-            Logger.Info(args.ToString());
-            Logger.Info("Received " + args.Last());
-            var _clyde = IoCManager.Resolve<IClyde>();
-            _clyde.CreatePngCursor(args[0]);
-            console.AddLine("Set cursor to generic icon");
-            return true;
         }
     }
 
@@ -631,6 +607,20 @@ namespace Robust.Client.Console.Commands
         }
     }
 
+    internal class ToggleShadows : IConsoleCommand
+    {
+        public string Command => "toggleshadows";
+        public string Description => "Toggles shadow rendering.";
+        public string Help => "toggleshadows";
+
+        public bool Execute(IDebugConsole console, params string[] args)
+        {
+            var mgr = IoCManager.Resolve<ILightManager>();
+            mgr.DrawShadows = !mgr.DrawShadows;
+            return false;
+        }
+    }
+
     internal class GcCommand : IConsoleCommand
     {
         public string Command => "gc";
@@ -645,11 +635,80 @@ namespace Robust.Client.Console.Commands
             }
             else
             {
-                GC.Collect(int.Parse(args[0]));
+                if (int.TryParse(args[0], out int result))
+                    GC.Collect(result);
+                else
+                    console.AddLine("Failed to parse argument.");
             }
 
             return false;
         }
+    }
+
+    internal class GcModeCommand : IConsoleCommand
+    {
+
+        public string Command => "gc_mode";
+
+        public string Description => "Change the GC Latency mode.";
+
+        public string Help => "gc_mode [type]";
+
+        public bool Execute(IDebugConsole console, params string[] args)
+        {
+            var prevMode = GCSettings.LatencyMode;
+            if (args.Length == 0)
+            {
+                console.AddLine($"current gc latency mode: {(int) prevMode} ({prevMode})");
+                console.AddLine("possible modes:");
+                foreach (int mode in Enum.GetValues(typeof(GCLatencyMode)))
+                {
+                    console.AddLine($" {mode}: {Enum.GetName(typeof(GCLatencyMode), mode)}");
+                }
+            }
+            else
+            {
+                GCLatencyMode mode;
+                if (char.IsDigit(args[0][0]) && int.TryParse(args[0], out var modeNum))
+                {
+                    mode = (GCLatencyMode) modeNum;
+                }
+                else if (!Enum.TryParse(args[0], true, out mode))
+                {
+                    console.AddLine($"unknown gc latency mode: {args[0]}");
+                    return false;
+                }
+
+                console.AddLine($"attempting gc latency mode change: {(int) prevMode} ({prevMode}) -> {(int) mode} ({mode})");
+                GCSettings.LatencyMode = mode;
+                console.AddLine($"resulting gc latency mode: {(int) GCSettings.LatencyMode} ({GCSettings.LatencyMode})");
+            }
+
+            return false;
+        }
+
+    }
+
+    internal class SerializeStatsCommand : IConsoleCommand
+    {
+
+        public string Command => "szr_stats";
+
+        public string Description => "Report serializer statistics.";
+
+        public string Help => "szr_stats";
+
+        public bool Execute(IDebugConsole console, params string[] args)
+        {
+
+            console.AddLine($"serialized: {RobustSerializer.BytesSerialized} bytes, {RobustSerializer.ObjectsSerialized} objects");
+            console.AddLine($"largest serialized: {RobustSerializer.LargestObjectSerializedBytes} bytes, {RobustSerializer.LargestObjectSerializedType} objects");
+            console.AddLine($"deserialized: {RobustSerializer.BytesDeserialized} bytes, {RobustSerializer.ObjectsDeserialized} objects");
+            console.AddLine($"largest serialized: {RobustSerializer.LargestObjectDeserializedBytes} bytes, {RobustSerializer.LargestObjectDeserializedType} objects");
+
+            return false;
+        }
+
     }
 
     internal class ChunkInfoCommand : IConsoleCommand
@@ -672,6 +731,90 @@ namespace Robust.Client.Console.Commands
             var chunk = grid.GetChunk(chunkIndex);
 
             console.AddLine($"worldBounds: {chunk.CalcWorldBounds()} localBounds: {chunk.CalcLocalBounds()}");
+            return false;
+        }
+    }
+
+    internal class ReloadShaders : IConsoleCommand
+    {
+        public string Command => "rldshader";
+        public string Description => "Reloads all shaders";
+        public string Help => "rldshader";
+
+        public bool Execute(IDebugConsole console, params string[] args)
+        {
+            var resC = IoCManager.Resolve<IResourceCache>();
+
+            var paths = resC.GetAllResources<ShaderSourceResource>().Select(p => p.Key).ToList();
+
+            foreach (var path in paths)
+            {
+                resC.ReloadResource<ShaderSourceResource>(path);
+            }
+
+            return false;
+        }
+    }
+
+    internal class ClydeDebugLayerCommand : IConsoleCommand
+    {
+        public string Command => "cldbglyr";
+        public string Description => "";
+        public string Help => "cldbglyr";
+
+        public bool Execute(IDebugConsole console, params string[] args)
+        {
+            var clyde = IoCManager.Resolve<IClydeInternal>();
+
+            if (args.Length < 1)
+            {
+                clyde.DebugLayers = ClydeDebugLayers.None;
+                return false;
+            }
+
+            clyde.DebugLayers = args[0] switch
+            {
+                "fov" => ClydeDebugLayers.Fov,
+                "light" => ClydeDebugLayers.Light,
+                _ => ClydeDebugLayers.None
+            };
+
+            return false;
+        }
+    }
+
+    internal class GetKeyInfoCommand : IConsoleCommand
+    {
+        public string Command => "keyinfo";
+        public string Description { get; }
+        public string Help => "keyinfo <Key>";
+
+        public bool Execute(IDebugConsole console, params string[] args)
+        {
+            if (args.Length != 1)
+            {
+                console.AddLine("Expected one argument", Color.Red);
+                return false;
+            }
+
+            var clyde = IoCManager.Resolve<IClydeInternal>();
+
+            if (Enum.TryParse(typeof(Keyboard.Key), args[0], true, out var parsed))
+            {
+                var key = (Keyboard.Key) parsed;
+
+                var name = clyde.GetKeyName(key);
+                var scanCode = clyde.GetKeyScanCode(key);
+                var nameScanCode = clyde.GetKeyNameScanCode(scanCode);
+
+                console.AddLine($"name: '{name}' scan code: '{scanCode}' name via scan code: '{nameScanCode}'");
+            }
+            else if (int.TryParse(args[0], out var scanCode))
+            {
+                var nameScanCode = clyde.GetKeyNameScanCode(scanCode);
+                console.AddLine($"name via scan code: '{nameScanCode}'");
+            }
+
             return false;
         }
     }

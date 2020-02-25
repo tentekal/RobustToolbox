@@ -11,7 +11,6 @@ namespace Robust.Client.GameObjects
     {
 #pragma warning disable 649
         [Dependency] private readonly IClientNetManager _network;
-        [Dependency] private readonly IEntitySystemManager _entitySystemManager;
         [Dependency] private readonly IEntityManager _entityManager;
 #pragma warning restore 649
 
@@ -78,7 +77,7 @@ namespace Robust.Client.GameObjects
                     return;
 
                 case EntityMessageType.SystemMessage:
-                    _entitySystemManager.HandleSystemMessage(message);
+                    _entityManager.EventBus.RaiseEvent(EventSource.Network, message.SystemMessage);
                     return;
             }
         }

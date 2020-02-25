@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Robust.Shared.GameObjects;
 using Robust.Shared.GameObjects.Components.Containers;
 using Robust.Shared.Interfaces.GameObjects;
@@ -23,6 +24,9 @@ namespace Robust.Client.GameObjects.Components.Containers
             // TODO: This will probably need relaxing if we want to predict things like inventories.
             throw new NotSupportedException("Cannot modify containers on the client.");
         }
+
+        public override IEnumerable<IContainer> GetAllContainers() =>
+            _containers.Values.Where(c => !c.Deleted);
 
         public override IContainer GetContainer(string id)
         {
@@ -77,7 +81,8 @@ namespace Robust.Client.GameObjects.Components.Containers
 
         public override void HandleComponentState(ComponentState curState, ComponentState nextState)
         {
-            var cast = (ContainerManagerComponentState) curState;
+            if(!(curState is ContainerManagerComponentState cast))
+                return;
 
             // Delete now-gone containers.
             List<string> toDelete = null;

@@ -21,11 +21,23 @@ namespace Robust.Client.ResourceManagement.ResourceTypes
             using (var stream = cache.ContentFileRead(path))
             using (var reader = new StreamReader(stream, EncodingHelpers.UTF8))
             {
-                ParsedShader = ShaderParser.Parse(reader);
+                ParsedShader = ShaderParser.Parse(reader, cache);
             }
 
             var clyde = IoCManager.Resolve<IClydeInternal>();
             ClydeHandle = clyde.LoadShader(ParsedShader, path.ToString());
+        }
+
+        public override void Reload(IResourceCache cache, ResourcePath path)
+        {
+            using (var stream = cache.ContentFileRead(path))
+            using (var reader = new StreamReader(stream, EncodingHelpers.UTF8))
+            {
+                ParsedShader = ShaderParser.Parse(reader, cache);
+            }
+
+            var clyde = IoCManager.Resolve<IClydeInternal>();
+            clyde.ReloadShader(ClydeHandle, ParsedShader);
         }
     }
 }
