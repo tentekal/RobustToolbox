@@ -330,13 +330,14 @@ namespace Robust.Client.UserInterface.Controls
             var iconBg = ActualItemBackground;
             var iconSelectedBg = ActualSelectedItemBackground;
             var iconDisabledBg = ActualDisabledItemBackground;
-
             var offset = -_scrollBar.Value;
+            var itemNumber = 0;
 
             listBg.Draw(handle, PixelSizeBox);
 
             foreach (var item in _itemList)
             {
+                itemNumber += 1;
                 var bg = iconBg;
 
                 if (item.Disabled)
@@ -361,7 +362,13 @@ namespace Robust.Client.UserInterface.Controls
                 bg.Draw(handle, item.Region.Value);
 
                 var contentBox = bg.GetContentBox(item.Region.Value);
-                var drawOffset = contentBox.TopLeft;
+                DrawTextInternal(handle, itemNumber.ToString(), contentBox);
+
+                var textDrawOffset = contentBox.Left * 3;
+                var drawOffset = (textDrawOffset, contentBox.Top);
+
+
+
                 if (item.Icon != null)
                 {
                     if (item.IconRegion.Size == Vector2.Zero)
@@ -376,8 +383,8 @@ namespace Robust.Client.UserInterface.Controls
 
                 if (item.Text != null)
                 {
-                    var textBox = new UIBox2(contentBox.Left + item.IconSize.X, contentBox.Top, contentBox.Right, contentBox.Bottom);
-                    DrawTextInternal(handle, item.Text, textBox);
+                   var textBox = new UIBox2(item.IconSize.X + textDrawOffset, contentBox.Top, contentBox.Right, contentBox.Bottom);
+                   DrawTextInternal(handle, item.Text, textBox);
                 }
 
                 offset += itemHeight;
